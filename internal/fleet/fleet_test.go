@@ -232,7 +232,7 @@ func TestDefaultProcAliveRejectsReusedPid(t *testing.T) {
 
 func TestSeenSurvivesEmptyRead(t *testing.T) {
 	now := time.Now()
-	s := loadSeen(filepath.Join(t.TempDir(), "seen.json"))
+	s := loadSeen(filepath.Join(t.TempDir(), "seen.json"), "")
 	s.mark("recent", now.Add(-time.Hour))
 	s.mark("old", now.Add(-48*time.Hour))
 	s.prune(map[string]bool{}, now)
@@ -253,5 +253,30 @@ func TestLoadSessionsDetectsFormatChange(t *testing.T) {
 	empty := t.TempDir()
 	if _, parsed, _ := loadSessions(empty, func([]rawSession) map[int]bool { return nil }); !parsed {
 		t.Error("an empty sessions dir is not a format change")
+	}
+}
+
+func TestSeenCarriesOverFromCcfleet(t *testing.T) {
+	dir := t.TempDir()
+	legacy, path := filepath.Join(dir, "ccfleet", "seen.json"), filepath.Join(dir, "peekabot", "seen.json")
+	write(t, filepath.Dir(legacy), "seen.json", `{"s1":1700000000000}`)
+	s := loadSeen(path, legacy)
+	if s.empty() || s.at("s1").UnixMilli() != 1700000000000 {
+		t.Fatal("ccfleet's seen marks not read; every idle session would turn done after the rename")
+	}
+	s.save()
+	if b, err := os.ReadFile(path); err != nil || !strings.Contains(string(b), "s1") {
+		t.Fatalf("legacy marks not written to the new path: %s %v", b, err)
+	}
+}
+
+func TestPanesHonourCcfleetFocusHook(t *testing.T) {
+	p := parsePanes("%1\ts\t@1\t0\tw\t0\t0\t\t42\t1700000000")["%1"]
+	if p.SeenAt != 1700000000000 || p.PID != 42 {
+		t.Errorf("@ccfleet_seen ignored: %+v", p)
+	}
+	p = parsePanes("%1\ts\t@1\t0\tw\t0\t0\t1700000005\t42\t1700000000")["%1"]
+	if p.SeenAt != 1700000005000 {
+		t.Errorf("newer @peekabot_seen not preferred: %+v", p)
 	}
 }

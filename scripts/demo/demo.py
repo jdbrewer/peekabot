@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Build a fake fleet of Claude Code sessions in tmux and screenshot ccfleet over it.
+"""Build a fake fleet of Claude Code sessions in tmux and screenshot peekabot over it.
 
 Everything is invented (repos, prompts, panes), so the images are safe to publish.
 
     python3 scripts/demo/demo.py            # writes docs/img/*.png
     python3 scripts/demo/demo.py --keep     # leave the demo tmux session up to poke at
-    python3 scripts/demo/demo.py --check    # no images: assert ccfleet reads the fleet right (CI)
+    python3 scripts/demo/demo.py --check    # no images: assert peekabot reads the fleet right (CI)
 
 Needs tmux, Go and Google Chrome (for the PNG render).
 """
@@ -19,7 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
-TMUX = "ccfleet-demo"
+TMUX = "peekabot-demo"
 COLS, ROWS = 170, 26
 NOW = int(time.time() * 1000)
 MIN = 60_000
@@ -156,7 +156,7 @@ def transcript(name, repo, branch, state, minutes, title, prompt, extra):
 def build(demo: Path):
     bindir = demo / "bin"
     bindir.mkdir(parents=True)
-    sh("go", "build", "-o", str(bindir / "ccfleet"), ".", cwd=ROOT)
+    sh("go", "build", "-o", str(bindir / "peekabot"), ".", cwd=ROOT)
     # named "claude" so it looks like a Claude Code process to anything inspecting it
     sh("go", "build", "-o", str(bindir / "claude"), "./scripts/demo/fakeclaude", cwd=ROOT)
 
@@ -189,7 +189,7 @@ def build(demo: Path):
         (claude / "sessions" / f"{pid}.json").write_text(json.dumps({
             "pid": int(pid), "sessionId": sid, "name": name, "cwd": repos[repo], "kind": "interactive",
             "version": "2.1.305", "status": state if state != "done" else "idle",
-            # ccfleet treats a process that started after its session as a reused pid
+            # peekabot treats a process that started after its session as a reused pid
             "startedAt": int(time.time() * 1000), "statusUpdatedAt": NOW - minutes * MIN, "tmux": f"{TMUX}:{window}.{pane}"}))
         lines = transcript(name, repo, branch, state, minutes, title, prompt, extra)
         body = "\n".join(json.dumps(l, separators=(",", ":")) for l in lines).replace("{repo}", repos[repo]) + "\n"
@@ -205,14 +205,14 @@ def build(demo: Path):
     (claude / "teams" / "invoices").mkdir(parents=True)
     (claude / "teams" / "invoices" / "config.json").write_text(
         json.dumps({"name": "invoices", "leadSessionId": lead, "members": members}))
-    (demo / "state" / "ccfleet").mkdir(parents=True)
-    (demo / "state" / "ccfleet" / "seen.json").write_text(json.dumps(seen))
+    (demo / "state" / "peekabot").mkdir(parents=True)
+    (demo / "state" / "peekabot" / "seen.json").write_text(json.dumps(seen))
     return bindir
 
 
 def start_board(demo: Path, bindir: Path):
-    env = f"CLAUDE_CONFIG_DIR={demo / 'claude'} XDG_STATE_HOME={demo / 'state'} CCFLEET_THEME=dark"
-    tmux("respawn-pane", "-k", "-t", f"{TMUX}:board", f"env {env} {bindir / 'ccfleet'}")
+    env = f"CLAUDE_CONFIG_DIR={demo / 'claude'} XDG_STATE_HOME={demo / 'state'} PEEKABOT_THEME=dark"
+    tmux("respawn-pane", "-k", "-t", f"{TMUX}:board", f"env {env} {bindir / 'peekabot'}")
     time.sleep(2.5)
 
 
@@ -286,7 +286,7 @@ def gif(demo: Path, bindir: Path, out: Path):
 
 def check(demo: Path, bindir: Path):
     env = dict(os.environ, CLAUDE_CONFIG_DIR=str(demo / "claude"), XDG_STATE_HOME=str(demo / "state"))
-    run = lambda *a: subprocess.run([str(bindir / "ccfleet"), *a], env=env, text=True, capture_output=True, check=True).stdout
+    run = lambda *a: subprocess.run([str(bindir / "peekabot"), *a], env=env, text=True, capture_output=True, check=True).stdout
     ss = json.loads(run("ls", "--json"))
     by = {s["name"]: s for s in ss}
     states = {}
@@ -308,7 +308,7 @@ def check(demo: Path, bindir: Path):
     if sorted(h["name"] for h in hits) != ["api-3f", "docs-6b", "web-91"]:
         problems.append(f"grep ada matched {[h['name'] for h in hits]}")
     env_s = f"CLAUDE_CONFIG_DIR={demo / 'claude'} XDG_STATE_HOME={demo / 'state'}"
-    tmux("respawn-pane", "-k", "-t", f"{TMUX}:board", f"env {env_s} {bindir / 'ccfleet'}")
+    tmux("respawn-pane", "-k", "-t", f"{TMUX}:board", f"env {env_s} {bindir / 'peekabot'}")
     time.sleep(2.5)
     screen = tmux("capture-pane", "-p", "-t", f"{TMUX}:board")
     for needle in ("NEEDS YOU", "1 waiting", "Add per-tenant rate limits", "Do you want to proceed?"):

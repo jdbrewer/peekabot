@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/jdbrewer/ccfleet/internal/fleet"
+	"github.com/jdbrewer/peekabot/internal/fleet"
 )
 
 func testModel() *model {

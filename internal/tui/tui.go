@@ -3,7 +3,6 @@
 package tui
 
 import (
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,7 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/jdbrewer/ccfleet/internal/fleet"
+	"github.com/jdbrewer/peekabot/internal/fleet"
 )
 
 const refreshEvery = time.Second
@@ -81,7 +80,7 @@ type searchMsg struct {
 // Run starts the board. client is the tmux client to jump on; when set the board
 // assumes it lives in a popup and exits after a jump.
 func Run(f *fleet.Fleet, client string) error {
-	if dark, ok := darkBackground(os.Getenv("CCFLEET_THEME"), fleet.ClientTheme(client)); ok {
+	if dark, ok := darkBackground(fleet.Env("THEME"), fleet.ClientTheme(client)); ok {
 		lipgloss.SetHasDarkBackground(dark)
 	}
 	m := &model{f: f, client: client, filter: newFilter(), peekOn: true, peek: viewportFor()}
@@ -89,7 +88,7 @@ func Run(f *fleet.Fleet, client string) error {
 	return err
 }
 
-// darkBackground picks the colour theme: CCFLEET_THEME wins, then tmux's client_theme.
+// darkBackground picks the colour theme: PEEKABOT_THEME wins, then tmux's client_theme.
 // When neither is known, lipgloss falls back to asking the terminal, which a tmux popup
 // doesn't answer reliably.
 func darkBackground(env, tmuxTheme string) (dark, ok bool) {

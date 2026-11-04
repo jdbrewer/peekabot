@@ -1,4 +1,4 @@
-module github.com/jdbrewer/ccfleet
+module github.com/jdbrewer/peekabot
 
 go 1.24
 

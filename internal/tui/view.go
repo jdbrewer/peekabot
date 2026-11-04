@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/jdbrewer/ccfleet/internal/fleet"
+	"github.com/jdbrewer/peekabot/internal/fleet"
 )
 
 // a working session with no transcript activity for this long is flagged as possibly stuck
@@ -144,7 +144,7 @@ func (m *model) headerView() string {
 		}
 		return sty.Render(fmt.Sprintf("%s %d %s", g, n, word))
 	}
-	left := sTitle.Render(" ccfleet ") + "  " + strings.Join([]string{
+	left := sTitle.Render(" peekabot ") + "  " + strings.Join([]string{
 		part(fleet.Waiting, wait, "waiting"), part(fleet.Done, done, "done"),
 		part(fleet.Working, work, "working"), part(fleet.Idle, idle, "idle"),
 	}, "  ")
@@ -394,7 +394,7 @@ func (m *model) helpView() string {
 		{"⚠", "collision: same file edited, or same branch active, in one checkout"},
 	}
 	var b strings.Builder
-	b.WriteString(sTitle.Render(" ccfleet keys") + "\n\n")
+	b.WriteString(sTitle.Render(" peekabot keys") + "\n\n")
 	for _, r := range rows {
 		b.WriteString("  " + lipgloss.NewStyle().Bold(true).Width(14).Render(r[0]) + sDim.Render(r[1]) + "\n")
 	}

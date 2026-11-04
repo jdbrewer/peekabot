@@ -1,4 +1,4 @@
-// Command ccfleet shows every Claude Code session running in tmux and which ones need you.
+// Command peekabot shows every Claude Code session running in tmux and which ones need you.
 package main
 
 import (
@@ -11,8 +11,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/jdbrewer/ccfleet/internal/fleet"
-	"github.com/jdbrewer/ccfleet/internal/tui"
+	"github.com/jdbrewer/peekabot/internal/fleet"
+	"github.com/jdbrewer/peekabot/internal/tui"
 )
 
 // version is set by release builds (-ldflags "-X main.version=1.2.3").
@@ -28,15 +28,15 @@ func buildVersion() string {
 	return "dev"
 }
 
-const usage = `ccfleet: a board for your Claude Code sessions
+const usage = `peekabot: a board for your Claude Code sessions
 
 usage:
-  ccfleet [--client TTY]   open the board (vim keys; ? for help)
-  ccfleet ls [--json]      print a snapshot
-  ccfleet grep TERMS...    find sessions whose transcript or metadata mention all TERMS
-  ccfleet badge            short needs-you summary for tmux status-right
-  ccfleet tmux-snippet     print tmux.conf lines: popup binding, badge, focus hook
-  ccfleet --version
+  peekabot [--client TTY]   open the board (vim keys; ? for help)
+  peekabot ls [--json]      print a snapshot
+  peekabot grep TERMS...    find sessions whose transcript or metadata mention all TERMS
+  peekabot badge            short needs-you summary for tmux status-right
+  peekabot tmux-snippet     print tmux.conf lines: popup binding, badge, focus hook
+  peekabot --version
 `
 
 func main() {
@@ -61,7 +61,7 @@ func main() {
 	case "tmux-snippet":
 		os.Stdout.WriteString(tmuxSnippet)
 	case "version":
-		fmt.Println("ccfleet", buildVersion())
+		fmt.Println("peekabot", buildVersion())
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 	default:
@@ -69,13 +69,13 @@ func main() {
 		os.Exit(2)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccfleet:", err)
+		fmt.Fprintln(os.Stderr, "peekabot:", err)
 		os.Exit(1)
 	}
 }
 
 func runBoard(args []string) error {
-	fs := flag.NewFlagSet("ccfleet", flag.ExitOnError)
+	fs := flag.NewFlagSet("peekabot", flag.ExitOnError)
 	client := fs.String("client", "", "tmux client tty to jump on (pass #{client_tty} from a popup)")
 	fs.Usage = func() { fmt.Print(usage) }
 	fs.Parse(args)
@@ -118,7 +118,7 @@ func runGrep(args []string) error {
 	fs.Parse(args)
 	query := strings.Join(fs.Args(), " ")
 	if strings.TrimSpace(query) == "" {
-		return fmt.Errorf("usage: ccfleet grep [--json] TERMS...")
+		return fmt.Errorf("usage: peekabot grep [--json] TERMS...")
 	}
 	f := fleet.New(fleet.Config{Index: true})
 	ss, err := f.Snapshot()
@@ -197,16 +197,16 @@ func clip(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-const tmuxSnippet = `# ccfleet: board in a popup on prefix+a, Enter jumps to the pane.
+const tmuxSnippet = `# peekabot: board in a popup on prefix+a, Enter jumps to the pane.
 # run-shell is needed: display-popup does not expand #{client_tty} in its command.
-bind-key a run-shell -b "tmux display-popup -c '#{client_tty}' -E -w 92% -h 85% 'ccfleet --client #{client_tty}'"
+bind-key a run-shell -b "tmux display-popup -c '#{client_tty}' -E -w 92% -h 85% 'peekabot --client #{client_tty}'"
 
 # needs-you badge in the status line (⏸ waiting on you · ✓ finished, unseen · ● working).
 # The badge refreshes every status-interval; 5s is snappy. Remove this line to keep yours.
 set -g status-interval 5
-set -ag status-right ' #(ccfleet badge)'
+set -ag status-right ' #(peekabot badge)'
 
-# optional: count a pane as seen whenever you focus it, even outside ccfleet
+# optional: count a pane as seen whenever you focus it, even outside peekabot
 set -g focus-events on
-set-hook -ga pane-focus-in 'run-shell -b "tmux set -p -t #{pane_id} @ccfleet_seen $(date +%s)"'
+set-hook -ga pane-focus-in 'run-shell -b "tmux set -p -t #{pane_id} @peekabot_seen $(date +%s)"'
 `

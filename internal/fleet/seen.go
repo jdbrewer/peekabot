@@ -20,11 +20,20 @@ type seenStore struct {
 // marks closer together than this are not worth a disk write
 const seenResolution = 5 * time.Second
 
-func loadSeen(path string) *seenStore {
+// legacy, if set, is read when path doesn't exist yet: the first save then writes path,
+// so marks carry over from ccfleet without every idle session turning "done".
+func loadSeen(path, legacy string) *seenStore {
 	s := &seenStore{path: path, marks: map[string]int64{}}
-	if b, err := os.ReadFile(path); err == nil {
-		s.existed = true
-		_ = json.Unmarshal(b, &s.marks)
+	for _, p := range []string{path, legacy} {
+		if p == "" {
+			continue
+		}
+		if b, err := os.ReadFile(p); err == nil {
+			s.existed = true
+			s.dirty = p != path
+			_ = json.Unmarshal(b, &s.marks)
+			break
+		}
 	}
 	return s
 }
@@ -66,7 +75,7 @@ func (s *seenStore) save() {
 	if !s.dirty && s.existed {
 		return
 	}
-	// merge newer marks written by another ccfleet process
+	// merge newer marks written by another peekabot process
 	if b, err := os.ReadFile(s.path); err == nil {
 		var disk map[string]int64
 		if json.Unmarshal(b, &disk) == nil {

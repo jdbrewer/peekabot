@@ -24,12 +24,12 @@ jobs:
       - name: Update Homebrew formula on main
         run: |
           v="${GITHUB_REF_NAME#v}"
-          scripts/formula.sh "$v" dist/checksums.txt > /tmp/ccfleet.rb
+          scripts/formula.sh "$v" dist/checksums.txt > /tmp/peekabot.rb
           git fetch origin main
           git checkout main
-          mkdir -p Formula && cp /tmp/ccfleet.rb Formula/ccfleet.rb
+          mkdir -p Formula && cp /tmp/peekabot.rb Formula/peekabot.rb
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/ccfleet.rb
-          git diff --cached --quiet || git commit -m "Formula: ccfleet ${v}"
+          git add Formula/peekabot.rb
+          git diff --cached --quiet || git commit -m "Formula: peekabot ${v}"
           git push origin main

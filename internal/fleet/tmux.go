@@ -21,7 +21,7 @@ type Pane struct {
 }
 
 const paneFormat = "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_index}\t#{window_name}\t#{pane_index}\t" +
-	"#{&&:#{&&:#{pane_active},#{window_active}},#{session_attached}}\t#{@ccfleet_seen}\t#{pane_pid}"
+	"#{&&:#{&&:#{pane_active},#{window_active}},#{session_attached}}\t#{@peekabot_seen}\t#{pane_pid}\t#{@ccfleet_seen}"
 
 // HaveTmux reports whether a tmux server is reachable.
 func HaveTmux() bool {
@@ -48,6 +48,9 @@ func parsePanes(out string) map[string]Pane {
 		p.SeenAt = parseInt64(f[7]) * 1000
 		if len(f) > 8 {
 			p.PID = int(parseInt64(f[8]))
+		}
+		if len(f) > 9 { // @ccfleet_seen, set by a focus hook from before the rename
+			p.SeenAt = max(p.SeenAt, parseInt64(f[9])*1000)
 		}
 		panes[p.ID] = p
 	}

@@ -76,6 +76,16 @@ type Config struct {
 	ClaudeDir string // ~/.claude
 	StateFile string // seen store
 	Index     bool   // keep transcript text in memory for Search
+
+	legacyStateFile string // ccfleet's seen store, read until StateFile exists
+}
+
+// Env reads PEEKABOT_<name>, falling back to the CCFLEET_<name> it was called before the rename.
+func Env(name string) string {
+	if v := os.Getenv("PEEKABOT_" + name); v != "" {
+		return v
+	}
+	return os.Getenv("CCFLEET_" + name)
 }
 
 func (c Config) withDefaults() Config {
@@ -92,7 +102,8 @@ func (c Config) withDefaults() Config {
 		if base == "" {
 			base = filepath.Join(home, ".local", "state")
 		}
-		c.StateFile = filepath.Join(base, "ccfleet", "seen.json")
+		c.StateFile = filepath.Join(base, "peekabot", "seen.json")
+		c.legacyStateFile = filepath.Join(base, "ccfleet", "seen.json")
 	}
 	return c
 }
@@ -117,7 +128,7 @@ func New(cfg Config) *Fleet {
 		tails: map[string]*transcriptTail{},
 		roots: map[string]string{},
 		teams: newTeamIndex(filepath.Join(cfg.ClaudeDir, "teams")),
-		seen:  loadSeen(cfg.StateFile),
+		seen:  loadSeen(cfg.StateFile, cfg.legacyStateFile),
 		panes: ListPanes,
 		now:   time.Now,
 	}
@@ -141,7 +152,7 @@ func (f *Fleet) snapshot(lite bool) ([]Session, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
-	if !parsed || os.Getenv("CCFLEET_SOURCE") == "cli" {
+	if !parsed || Env("SOURCE") == "cli" {
 		if raws, err = loadFromCLI(f.alive, panes); err != nil {
 			return nil, err
 		}

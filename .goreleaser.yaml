@@ -1,5 +1,5 @@
 version: 2
-project_name: ccfleet
+project_name: peekabot
 builds:
   - main: .
     env: [CGO_ENABLED=0]
