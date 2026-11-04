@@ -32,6 +32,7 @@ With the optional focus hook, focusing the pane anywhere in tmux also counts.
 
 ```sh
 brew tap jdbrewer/peekabot https://github.com/jdbrewer/peekabot
+brew trust --formula jdbrewer/peekabot/peekabot   # Homebrew 7+ asks you to trust third-party formulae
 brew install peekabot
 ```
 
@@ -54,8 +55,16 @@ end-to-end check on both against a fake fleet of sessions in real tmux.
 
 ### Coming from ccfleet
 
-peekabot was called ccfleet until v0.2.0. If you installed it with Homebrew, `brew update &&
-brew upgrade` moves you over. Then swap `ccfleet` for `peekabot` in your tmux.conf, or paste a
+peekabot was called ccfleet until v0.2.0. If you installed it with Homebrew, Homebrew 7+ wants
+you to trust the formula under its new name before `brew upgrade` will move you over:
+
+```sh
+brew update
+brew trust --formula jdbrewer/ccfleet/peekabot
+brew upgrade ccfleet
+```
+
+Then swap `ccfleet` for `peekabot` in your tmux.conf, or paste a
 fresh `peekabot tmux-snippet`. Until then, your seen marks, the old `@ccfleet_seen` focus hook and
 the `CCFLEET_*` environment variables all keep working.
 
