@@ -39,10 +39,13 @@ class Peekabot < Formula
 
   def install
     bin.install "peekabot"
+    # peekabot was ccfleet until 0.2.0: keep tmux.conf bindings that run ccfleet working
+    bin.install_symlink bin/"peekabot" => "ccfleet"
   end
 
   test do
     assert_match version.to_s, shell_output("#{bin}/peekabot --version")
+    assert_match version.to_s, shell_output("#{bin}/ccfleet --version")
   end
 end
 RUBY

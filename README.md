@@ -61,18 +61,27 @@ end-to-end check on both against a fake fleet of sessions in real tmux.
 
 ### Coming from ccfleet
 
-peekabot was called ccfleet until v0.2.0. If you installed it with Homebrew, Homebrew 7+ wants
-you to trust the formula under its new name before `brew upgrade` will move you over:
+peekabot was called ccfleet until v0.2.0. How you move over depends on how you installed it:
 
-```sh
-brew update
-brew trust --formula jdbrewer/ccfleet/peekabot
-brew upgrade ccfleet
-```
+- **Homebrew:** Homebrew 7+ wants you to trust the formula under its new name first:
 
-Then swap `ccfleet` for `peekabot` in your tmux.conf, or paste a
-fresh `peekabot tmux-snippet`. Until then, your seen marks, the old `@ccfleet_seen` focus hook and
-the `CCFLEET_*` environment variables all keep working.
+  ```sh
+  brew update
+  brew trust --formula jdbrewer/ccfleet/peekabot
+  brew upgrade ccfleet
+  ```
+
+  Homebrew keeps a `ccfleet` command for now, so your tmux bindings still open the board.
+  The board shows a reminder to update them.
+- **A release binary you copied somewhere** (e.g. `~/.local/bin/ccfleet`): install peekabot
+  any way above, then delete the old binary (`which ccfleet` shows where it is).
+- **`go install`:** the old path now fails with `module declares its path as:
+  github.com/jdbrewer/peekabot`. Run `go install github.com/jdbrewer/peekabot@latest`, then
+  `rm "$(go env GOPATH)/bin/ccfleet"`.
+
+Then swap `ccfleet` for `peekabot` in your tmux.conf, or paste a fresh `peekabot tmux-snippet`.
+Your seen marks carry over on their own. The old `@ccfleet_seen` focus hook and `CCFLEET_*`
+environment variables keep working in the meantime.
 
 ## Commands
 

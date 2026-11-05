@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"text/tabwriter"
@@ -79,7 +80,11 @@ func runBoard(args []string) error {
 	client := fs.String("client", "", "tmux client tty to jump on (pass #{client_tty} from a popup)")
 	fs.Usage = func() { fmt.Print(usage) }
 	fs.Parse(args)
-	return tui.Run(fleet.New(fleet.Config{Index: true}), *client)
+	notice := ""
+	if filepath.Base(os.Args[0]) == "ccfleet" { // Homebrew keeps a ccfleet alias so old tmux.conf bindings still open the board
+		notice = "ccfleet is now peekabot: swap the name in tmux.conf, or paste `peekabot tmux-snippet`"
+	}
+	return tui.Run(fleet.New(fleet.Config{Index: true}), *client, notice)
 }
 
 func runLs(args []string) error {

@@ -86,12 +86,13 @@ type searchMsg struct {
 }
 
 // Run starts the board. client is the tmux client to jump on; when set the board
-// assumes it lives in a popup and exits after a jump.
-func Run(f *fleet.Fleet, client string) error {
+// assumes it lives in a popup and exits after a jump. notice, if set, shows in the
+// footer until the first key.
+func Run(f *fleet.Fleet, client, notice string) error {
 	if dark, ok := darkBackground(fleet.Env("THEME"), fleet.ClientTheme(client)); ok {
 		lipgloss.SetHasDarkBackground(dark)
 	}
-	m := &model{f: f, client: client, filter: newFilter(), peekOn: true, peek: viewportFor(), answered: map[string]string{}}
+	m := &model{f: f, client: client, filter: newFilter(), peekOn: true, peek: viewportFor(), answered: map[string]string{}, flash: notice}
 	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
