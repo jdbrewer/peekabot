@@ -104,12 +104,18 @@ func runLs(args []string) error {
 			doing = s.Info.Action
 		case s.State == fleet.Waiting && p != nil:
 			doing = p.Tool + " · " + p.Summary
+		case s.State == fleet.Done:
+			doing = s.Outcome()
+		}
+		state := s.State.String()
+		if s.Info.Failed != "" && s.State != fleet.Working {
+			state = "failed"
 		}
 		flag := ""
 		if len(s.Collisions) > 0 {
 			flag = " ⚠"
 		}
-		fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\t%s\t%d%%\t%s\t%s\n", s.State, flag, Ago(s.StateSince), s.Tmux.Pane, s.Name,
+		fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\t%s\t%d%%\t%s\t%s\n", state, flag, Ago(s.StateSince), s.Tmux.Pane, s.Name,
 			s.Repo, s.Info.Branch, s.ContextPct(), clip(doing, 40), clip(s.Label(), 60))
 	}
 	return w.Flush()

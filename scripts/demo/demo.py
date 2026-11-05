@@ -32,10 +32,13 @@ SESSIONS = [
       "edits": ["src/limits/policy.ts", "src/limits/store.ts"], "tokens": 118_000, "pane": "waiting"}),
     ("web-f8", "web", "fix/login-redirect", "done", 12, "Fix login redirect loop",
      "the login page bounces forever after SSO; fix it",
-     {"text": "Fixed: the session cookie was set on the wrong path, so the guard never saw it.", "tokens": 64_000}),
+     {"text": "Fixed: the session cookie was set on the wrong path, so the guard never saw it. I added a regression test.",
+      "edits": ["src/auth/session.ts", "src/auth/session.test.ts"], "tokens": 64_000}),
     ("docs-2a", "docs", "main", "done", 3, "Write the v2 migration guide",
      "draft the v2 migration guide from the changelog",
-     {"text": "The guide is in docs/migrate-v2.md; I left two questions for you at the top.", "tokens": 41_000}),
+     # the turn died on an API error, written the way Claude Code writes one
+     {"text": "API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment.",
+      "error": "server_error", "tokens": 41_000}),
     ("api-c5", "api", "feat/rate-limits", "busy", 31, "Rate-limit metrics dashboard",
      "add metrics for the new rate limiter and a grafana panel",
      {"tool": ("Edit", {"file_path": "src/limits/policy.ts"}), "edits": ["src/limits/policy.ts"], "tokens": 140_000}),
@@ -151,7 +154,10 @@ def transcript(name, repo, branch, state, minutes, title, prompt, extra):
         tool, inp = extra["tool"]
         inp = {k: (f"{{repo}}/{v}" if k == "file_path" else v) for k, v in inp.items()}
         blocks.append({"type": "tool_use", "id": "cur", "name": tool, "input": inp})
-    if blocks:
+    if blocks and "error" in extra:
+        lines.append({"type": "assistant", "gitBranch": branch, "timestamp": ts(at), "isApiErrorMessage": True,
+                      "error": extra["error"], "message": {"model": "<synthetic>", "content": blocks}})
+    elif blocks:
         lines.append({"type": "assistant", "gitBranch": branch, "timestamp": ts(at),
                       "message": {"model": "claude-opus-5-5", "usage": usage, "content": blocks}})
     lines.append({"type": "ai-title", "aiTitle": title})
@@ -311,6 +317,11 @@ def check(demo: Path, bindir: Path):
         problems.append("api-45 not recognised as the invoices tester")
     if by["api-3f"]["transcript"].get("branch") != "feat/rate-limits":
         problems.append("transcript not read (no branch on api-3f)")
+    t = {n: by[n]["transcript"] for n in ("web-f8", "docs-2a")}
+    if t["web-f8"].get("turnFiles") != 2 or not t["web-f8"].get("lastText", "").startswith("Fixed: the session cookie"):
+        problems.append(f"web-f8 outcome not read: {t['web-f8'].get('lastText')!r}, {t['web-f8'].get('turnFiles')} files")
+    if t["docs-2a"].get("failed") != "server_error" or t["docs-2a"].get("model") != "claude-opus-5-5":
+        problems.append(f"docs-2a failure not read: failed={t['docs-2a'].get('failed')!r} model={t['docs-2a'].get('model')!r}")
     if any(not s["tmux"]["pane"] for s in ss):
         problems.append("a session has no tmux pane")
     hits = json.loads(run("grep", "--json", "ada"))
@@ -321,7 +332,8 @@ def check(demo: Path, bindir: Path):
     time.sleep(2.5)
     screen = tmux("capture-pane", "-p", "-t", f"{TMUX}:board")
     for needle in ("NEEDS YOU", "1 waiting", "Add per-tenant rate limits", "Do you want to proceed?",
-                   "wants: Bash · pnpm db:migrate   a approve · d deny"):
+                   "wants: Bash · pnpm db:migrate   a approve · d deny",
+                   "→ Fixed: the session c", "· 2 files", "✗"):
         if needle not in screen:
             problems.append(f"board missing {needle!r}")
     # approve then deny the waiting prompt from the board; Yes is 1 and No is 4 on this dialog
@@ -342,7 +354,7 @@ def check(demo: Path, bindir: Path):
     if problems:
         print("FAIL\n  " + "\n  ".join(problems) + "\n--- board ---\n" + screen)
         sys.exit(1)
-    print(f"ok: {len(ss)} sessions, states {states}, collisions, team, grep, board, approve and deny all as expected")
+    print(f"ok: {len(ss)} sessions, states {states}, collisions, team, grep, board, outcomes, approve and deny all as expected")
 
 
 def main():

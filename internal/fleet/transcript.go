@@ -3,12 +3,15 @@ package fleet
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Edit is one file write seen in a transcript.
@@ -23,10 +26,12 @@ type TranscriptInfo struct {
 	LastPrompt  string    `json:"lastPrompt,omitempty"`
 	Branch      string    `json:"branch,omitempty"`
 	Model       string    `json:"model,omitempty"`
-	Tool        string    `json:"tool,omitempty"`     // tool of the last tool_use, if still open
-	Action      string    `json:"action,omitempty"`   // one-line summary of the last tool_use
-	LastText    string    `json:"lastText,omitempty"` // first line of the last assistant text
-	Tokens      int       `json:"contextTokens"`      // context size of the last main-thread request
+	Tool        string    `json:"tool,omitempty"`      // tool of the last tool_use, if still open
+	Action      string    `json:"action,omitempty"`    // one-line summary of the last tool_use
+	LastText    string    `json:"lastText,omitempty"`  // first meaningful line of the last assistant text, markdown stripped
+	Failed      string    `json:"failed,omitempty"`    // error kind when the last reply was an API error, e.g. server_error
+	TurnFiles   int       `json:"turnFiles,omitempty"` // distinct files written since your last prompt
+	Tokens      int       `json:"contextTokens"`       // context size of the last main-thread request
 	LastEventAt time.Time `json:"lastEventAt,omitempty"`
 	Pending     *Call     `json:"pending,omitempty"` // newest tool_use still waiting for its result
 	Edits       []Edit    `json:"-"`
@@ -50,8 +55,9 @@ type transcriptTail struct {
 	mtime  time.Time
 	size   int64
 	info   TranscriptInfo
-	open   []*Call // tool_uses without a result yet, oldest first
-	index  bool    // collect searchable text into corpus
+	open   []*Call         // tool_uses without a result yet, oldest first
+	turn   map[string]bool // files written since your last prompt
+	index  bool            // collect searchable text into corpus
 	corpus corpus
 }
 
@@ -120,6 +126,8 @@ type rawLine struct {
 	GitBranch   string    `json:"gitBranch"`
 	IsSidechain bool      `json:"isSidechain"`
 	IsMeta      bool      `json:"isMeta"` // injected by the harness, not typed by you
+	IsAPIError  bool      `json:"isApiErrorMessage"`
+	Error       string    `json:"error"` // kind of API error: server_error, rate_limit, …
 	Timestamp   time.Time `json:"timestamp"`
 	Message     struct {
 		Model   string          `json:"model"`
@@ -189,6 +197,9 @@ func (t *transcriptTail) consume(line []byte) {
 		if t.index {
 			t.corpus.add(you, l.Timestamp, plain)
 		}
+		if !l.IsMeta && isPrompt(plain, blocks) {
+			t.turn, in.TurnFiles, in.Failed = nil, 0, ""
+		}
 		for _, b := range blocks {
 			switch b.Type {
 			case "tool_result":
@@ -208,9 +219,14 @@ func (t *transcriptTail) consume(line []byte) {
 		return
 	}
 
-	// assistant
-	if l.Message.Model != "" {
+	// assistant. An API error is a synthetic message: keep the real model, mark the turn failed.
+	if l.Message.Model != "" && l.Message.Model != "<synthetic>" {
 		in.Model = l.Message.Model
+	}
+	if l.IsAPIError {
+		in.Failed = cmp.Or(l.Error, "error")
+	} else if len(blocks) > 0 {
+		in.Failed = ""
 	}
 	if u := l.Message.Usage; u != nil {
 		if n := u.Input + u.CacheRead + u.CacheCreation; n > 0 {
@@ -220,7 +236,7 @@ func (t *transcriptTail) consume(line []byte) {
 	for _, b := range blocks {
 		switch b.Type {
 		case "text":
-			if s := firstLine(b.Text); s != "" {
+			if s := gist(b.Text); s != "" {
 				in.LastText = s
 			}
 			if t.index {
@@ -236,9 +252,97 @@ func (t *transcriptTail) consume(line []byte) {
 			in.Action = summarizeTool(b.Name, b.Input)
 			if p := editedPath(b.Name, b.Input); p != "" {
 				in.Edits = append(in.Edits, Edit{Path: p, At: l.Timestamp})
+				if t.turn == nil {
+					t.turn = map[string]bool{}
+				}
+				t.turn[p] = true
+				in.TurnFiles = len(t.turn)
 			}
 		}
 	}
+}
+
+// isPrompt reports whether a user line is something you typed, which starts a turn:
+// text, not tool results, and not a slash command's bookkeeping.
+func isPrompt(plain string, blocks []rawBlock) bool {
+	text := plain
+	for _, b := range blocks {
+		switch b.Type {
+		case "tool_result":
+			return false
+		case "text":
+			text += b.Text
+		}
+	}
+	text = strings.TrimSpace(text)
+	for _, p := range []string{"<command-", "<local-command-", "[Request interrupted"} {
+		if strings.HasPrefix(text, p) {
+			return false
+		}
+	}
+	return text != ""
+}
+
+var (
+	reMDLink   = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
+	reMDMarker = regexp.MustCompile(`^(?:[-*+>]\s+|\d+[.)]\s+)+`)
+	reMDSkip   = regexp.MustCompile("^(?:#|```|~~~|---|\\*\\*\\*|___|\\|)")
+)
+
+// gist is the first line of a reply worth showing on one line: headings, rules, code
+// fences and tables are skipped, and inline markdown is stripped. A reply that is only
+// headings falls back to the first heading's text.
+func gist(text string) string {
+	heading, fenced := "", false
+	for _, l := range strings.Split(text, "\n") {
+		l = strings.TrimSpace(l)
+		if strings.HasPrefix(l, "```") || strings.HasPrefix(l, "~~~") {
+			fenced = !fenced
+			continue
+		}
+		if l == "" || fenced {
+			continue
+		}
+		if reMDSkip.MatchString(l) {
+			if heading == "" && strings.HasPrefix(l, "#") {
+				heading = stripMarkdown(strings.TrimLeft(l, "# "))
+			}
+			continue
+		}
+		if s := stripMarkdown(reMDMarker.ReplaceAllString(l, "")); s != "" {
+			return s
+		}
+	}
+	return heading
+}
+
+func stripMarkdown(s string) string {
+	s = reMDLink.ReplaceAllString(s, "$1")
+	s = strings.NewReplacer("**", "", "__", "", "`", "").Replace(s)
+	return strings.TrimSpace(s)
+}
+
+// abbreviations that end in a period without ending the sentence
+var notSentenceEnd = map[string]bool{"e.g": true, "i.e": true, "etc": true, "vs": true, "approx": true, "cf": true, "Mr": true, "Ms": true, "Dr": true, "St": true}
+
+// FirstSentence cuts s after its first sentence, so a paragraph-long first line still
+// fits a row: "Fixed for next time — 237 tests. From now on…" → "Fixed for next time — 237 tests."
+func FirstSentence(s string) string {
+	for i := 0; i+2 < len(s); i++ {
+		if (s[i] != '.' && s[i] != '!' && s[i] != '?') || s[i+1] != ' ' {
+			continue
+		}
+		next := rune(s[i+2])
+		if !unicode.IsUpper(next) && !unicode.IsDigit(next) && next != '"' && next != '(' {
+			continue
+		}
+		word := s[strings.LastIndexAny(s[:i], " (")+1 : i]
+		if s[i] == '.' && notSentenceEnd[word] {
+			continue
+		}
+		return s[:i+1]
+	}
+	return s
 }
 
 func (t *transcriptTail) close(id string) {

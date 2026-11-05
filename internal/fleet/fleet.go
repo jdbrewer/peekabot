@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,6 +62,23 @@ func (s Session) Label() string {
 		return s.Info.LastPrompt
 	}
 	return s.Name
+}
+
+// Outcome is one line on how the last turn ended: the first sentence of Claude's reply,
+// and how many files the turn wrote, e.g. "Fixed the redirect loop. · 2 files".
+func (s Session) Outcome() string {
+	out := FirstSentence(s.Info.LastText)
+	if n := s.Info.TurnFiles; n > 0 {
+		files := fmt.Sprintf("%d files", n)
+		if n == 1 {
+			files = "1 file"
+		}
+		if out == "" {
+			return "wrote " + files
+		}
+		out += " · " + files
+	}
+	return out
 }
 
 // ContextPct estimates how full the context window is.

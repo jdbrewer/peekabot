@@ -15,7 +15,8 @@ the tmux status line. You check it when you choose to.
 | | State | Meaning |
 |---|---|---|
 | ⏸ | waiting | blocked on a permission prompt or a question |
-| ✓ | done | finished a turn since you last looked |
+| ✓ | done | finished a turn since you last looked. The row shows how: the first sentence of Claude's reply and how many files the turn wrote |
+| ✗ | failed | the last turn ended in an API error (overloaded, rate limit, expired login) rather than a reply |
 | ● | working | busy. An orange age means no activity for 10 minutes, so it may be stuck |
 | ○ | idle | finished, and you've seen it |
 | ⚠ | collision | another session in the same checkout edited the same file in the last 30 minutes, or is working on the same branch |

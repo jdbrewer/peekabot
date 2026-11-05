@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jdbrewer/peekabot/internal/fleet"
 )
@@ -186,5 +187,27 @@ func TestQuestionWithoutTranscript(t *testing.T) {
 	m.rebuild()
 	if !strings.Contains(m.detailView(time.Now()), "asks: a question") {
 		t.Error("a question with no transcript entry shows nothing")
+	}
+}
+
+func TestDoneRowShowsOutcome(t *testing.T) {
+	m := testModel()
+	now := time.Now()
+	s := fleet.Session{Name: "web-f8", Repo: "web", State: fleet.Done, StateSince: now,
+		Info: fleet.TranscriptInfo{Title: "Fix login redirect loop", LastText: "Fixed the cookie path. It was /api.", TurnFiles: 2}}
+	plain := func(w int) string { return ansi.Strip(m.rowView(s, false, w, now)) }
+
+	if r := plain(200); !strings.Contains(r, "Fix login redirect loop") || !strings.Contains(r, "→ Fixed the cookie path. · 2 files") {
+		t.Errorf("wide row should show title and outcome: %q", r)
+	}
+	if r := plain(91); !strings.Contains(r, "✓") || !strings.Contains(r, "→ Fixed the cookie path.") || strings.Contains(r, "redirect") {
+		t.Errorf("narrow row should trade the title for the outcome: %q", r)
+	}
+	if r := plain(82); !strings.Contains(r, "→ Fixed the c") || !strings.Contains(r, "… · 2 files") {
+		t.Errorf("narrow row should trade the title for the outcome: %q", r)
+	}
+	s.Info.Failed, s.Info.LastText, s.Info.TurnFiles = "server_error", "API Error: 529 Overloaded. Try again.", 0
+	if r := plain(91); !strings.Contains(r, "✗") || !strings.Contains(r, "→ API Error: 529 Overloaded.") {
+		t.Errorf("failed row: %q", r)
 	}
 }

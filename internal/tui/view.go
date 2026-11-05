@@ -64,6 +64,20 @@ func asking(s fleet.Session) (verb, what string) {
 	return "wants", p.Tool + " · " + p.Summary
 }
 
+// outcomeCell fits "→ <first sentence> · N files" into w columns, shortening the
+// sentence rather than dropping the file count.
+func outcomeCell(s fleet.Session, w int) string {
+	o, files := "→ "+s.Outcome(), ""
+	if i := strings.LastIndex(o, " · "); i >= 0 && s.Info.TurnFiles > 0 {
+		o, files = o[:i], o[i:]
+	}
+	return clip(o, w-lipgloss.Width(files)) + files
+}
+
+// failed reports a session whose last turn ended in an API error (overloaded, rate
+// limit, expired login) rather than a reply.
+func failed(s fleet.Session) bool { return s.State != fleet.Working && s.Info.Failed != "" }
+
 func stateStyle(st fleet.State) (string, lipgloss.Style) {
 	switch st {
 	case fleet.Waiting:
@@ -224,6 +238,9 @@ func (m *model) listView(now time.Time) string {
 
 func (m *model) rowView(s fleet.Session, selected bool, w int, now time.Time) string {
 	glyph, gs := stateStyle(s.State)
+	if failed(s) {
+		glyph, gs = "✗", sWarn.Bold(true)
+	}
 	age := fleet.Ago(s.StateSince, now)
 	ageStyle := sDim
 	if stalled(s, now) {
@@ -265,6 +282,19 @@ func (m *model) rowView(s fleet.Session, selected bool, w int, now time.Time) st
 		taskW := rest * 55 / 100
 		doing = sDim.Render(pad(clip(s.Info.Action, rest-taskW-1), rest-taskW))
 		task = pad(clip(task, taskW-1), taskW)
+	} else if o := s.Outcome(); s.State == fleet.Done && o != "" && rest >= 30 {
+		// how the turn ended; at narrow widths it replaces the title, since it's the news
+		st := lipgloss.NewStyle()
+		if failed(s) {
+			st = sWarn
+		}
+		if rest >= 60 {
+			taskW := rest * 45 / 100
+			doing = st.Render(pad(outcomeCell(s, rest-taskW-1), rest-taskW))
+			task = pad(clip(task, taskW-1), taskW)
+		} else {
+			task = st.Render(pad(outcomeCell(s, rest), rest))
+		}
 	} else if verb, a := asking(s); a != "" && rest >= 40 {
 		if verb == "asks" {
 			a = "asks · " + a
@@ -334,6 +364,9 @@ func (m *model) detailView(now time.Time) string {
 		line2 = " asked: " + s.Info.LastPrompt
 	}
 	line2 = sDim.Render(line2)
+	if failed(*s) {
+		line2 = sWarn.Render(" failed (" + s.Info.Failed + "): " + s.Info.LastText)
+	}
 	if verb, a := asking(*s); a != "" {
 		keys := "⏎ jump to answer"
 		if s.Answerable() {
@@ -431,6 +464,7 @@ func (m *model) helpView() string {
 		{"✓ done", "finished a turn since you last looked"},
 		{"● working", "busy; orange age means no activity for 10m"},
 		{"○ idle", "finished and seen"},
+		{"✗ failed", "the last turn ended in an API error: overloaded, rate limit, expired login"},
 		{"⚠", "collision: same file edited, or same branch active, in one checkout"},
 	}
 	var b strings.Builder
