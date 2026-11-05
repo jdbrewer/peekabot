@@ -72,6 +72,7 @@ WINDOWS = {
     "web-0c": "spikes", "api-e1": "spikes",
 }
 
+# the permission dialog as Claude Code 2.1.318 draws it (option numbers vary by prompt)
 PANES = {
     "waiting": """\
 ⏺ The rate limiter is in: a token bucket per tenant, sized from the plan tier,
@@ -82,17 +83,22 @@ PANES = {
 
 ⏺ Next I need to run the migration that adds the tenant_limits table.
 
-╭────────────────────────────────────────────────────────────────────╮
-│ Bash command                                                       │
-│                                                                    │
-│   pnpm db:migrate                                                  │
-│   Run the rate-limit migration                                     │
-│                                                                    │
-│ Do you want to proceed?                                            │
-│ ❯ 1. Yes                                                           │
-│   2. Yes, and don't ask again for pnpm db:migrate commands         │
-│   3. No, and tell Claude what to do differently                    │
-╰────────────────────────────────────────────────────────────────────╯
+⏺ Bash(pnpm db:migrate)
+  ⎿  Waiting…
+
+────────────────────────────────────────────────────────────────────────────────
+ Bash command
+ Run the rate-limit migration
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ pnpm db:migrate
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for pnpm db:migrate commands
+   3. Yes, and switch to auto mode
+   4. No
+
+ Esc to cancel · Tab to amend
 """,
 }
 
@@ -179,6 +185,8 @@ def build(demo: Path):
         text.write_text(pane_text(name, title, prompt, extra))
         win = WINDOWS[name]
         cmd = f"cat {text}; exec {bindir / 'claude'}"
+        if state == "waiting":  # raw tty so each key reaches fakeclaude's log unbuffered
+            cmd = f"cat {text}; stty -icanon -echo; FAKECLAUDE_KEYLOG={demo / 'keys.log'} exec {bindir / 'claude'}"
         if win in windows:
             out = tmux("split-window", "-d", "-h", "-P", "-F", "#{pane_id}", "-t", f"{TMUX}:{win}", "-c", repos[repo], cmd)
         else:
@@ -190,7 +198,8 @@ def build(demo: Path):
             "pid": int(pid), "sessionId": sid, "name": name, "cwd": repos[repo], "kind": "interactive",
             "version": "2.1.305", "status": state if state != "done" else "idle",
             # peekabot treats a process that started after its session as a reused pid
-            "startedAt": int(time.time() * 1000), "statusUpdatedAt": NOW - minutes * MIN, "tmux": f"{TMUX}:{window}.{pane}"}))
+            "startedAt": int(time.time() * 1000), "statusUpdatedAt": NOW - minutes * MIN, "tmux": f"{TMUX}:{window}.{pane}",
+            **({"waitingFor": "permission prompt"} if state == "waiting" else {})}))
         lines = transcript(name, repo, branch, state, minutes, title, prompt, extra)
         body = "\n".join(json.dumps(l, separators=(",", ":")) for l in lines).replace("{repo}", repos[repo]) + "\n"
         (claude / "projects" / "-demo" / f"{sid}.jsonl").write_text(body)
@@ -311,13 +320,29 @@ def check(demo: Path, bindir: Path):
     tmux("respawn-pane", "-k", "-t", f"{TMUX}:board", f"env {env_s} {bindir / 'peekabot'}")
     time.sleep(2.5)
     screen = tmux("capture-pane", "-p", "-t", f"{TMUX}:board")
-    for needle in ("NEEDS YOU", "1 waiting", "Add per-tenant rate limits", "Do you want to proceed?"):
+    for needle in ("NEEDS YOU", "1 waiting", "Add per-tenant rate limits", "Do you want to proceed?",
+                   "wants: Bash · pnpm db:migrate   a approve · d deny"):
         if needle not in screen:
             problems.append(f"board missing {needle!r}")
+    # approve then deny the waiting prompt from the board; Yes is 1 and No is 4 on this dialog
+    keylog = demo / "keys.log"
+    # a fresh board each time: a board won't answer the same prompt twice, and the fake one never moves on
+    for key, want in (("a", "1"), ("d", "14")):
+        tmux("respawn-pane", "-k", "-t", f"{TMUX}:board", f"env {env_s} {bindir / 'peekabot'}")
+        time.sleep(2.5)
+        tmux("send-keys", "-t", f"{TMUX}:board", key)
+        time.sleep(1.5)
+        got = keylog.read_text() if keylog.exists() else ""
+        if got != want:
+            problems.append(f"after {key!r} the prompt received {got!r}, want {want!r}")
+            screen = tmux("capture-pane", "-p", "-t", f"{TMUX}:board")
+    if by["api-3f"].get("waitingFor") != "permission prompt" or \
+            (by["api-3f"]["transcript"].get("pending") or {}).get("summary") != "pnpm db:migrate":
+        problems.append(f"ls --json lacks the pending call: {by['api-3f'].get('waitingFor')} {by['api-3f']['transcript'].get('pending')}")
     if problems:
         print("FAIL\n  " + "\n  ".join(problems) + "\n--- board ---\n" + screen)
         sys.exit(1)
-    print(f"ok: {len(ss)} sessions, states {states}, collisions, team, grep and board all as expected")
+    print(f"ok: {len(ss)} sessions, states {states}, collisions, team, grep, board, approve and deny all as expected")
 
 
 def main():

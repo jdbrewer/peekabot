@@ -98,9 +98,12 @@ func runLs(args []string) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "STATE\tFOR\tPANE\tNAME\tREPO\tBRANCH\tCTX\tDOING\tTASK")
 	for _, s := range ss {
-		doing := s.Info.Action
-		if s.State != fleet.Working {
-			doing = ""
+		doing := ""
+		switch p := s.Info.Pending; {
+		case s.State == fleet.Working:
+			doing = s.Info.Action
+		case s.State == fleet.Waiting && p != nil:
+			doing = p.Tool + " · " + p.Summary
 		}
 		flag := ""
 		if len(s.Collisions) > 0 {

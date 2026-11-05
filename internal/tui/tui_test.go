@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -143,5 +144,47 @@ func TestDarkBackground(t *testing.T) {
 		if d, ok := darkBackground(c.env, c.tmux); d != c.dark || ok != c.ok {
 			t.Errorf("darkBackground(%q,%q) = %v,%v", c.env, c.tmux, d, ok)
 		}
+	}
+}
+
+func TestAnswerKeys(t *testing.T) {
+	m := testModel()
+	dir := t.TempDir()
+	m.f = fleet.New(fleet.Config{ClaudeDir: dir, StateFile: dir + "/seen.json"})
+	m.answered = map[string]string{}
+	call := &fleet.Call{ID: "t1", Tool: "Bash", Summary: "pnpm db:migrate"}
+	m.all[0].Tmux = fleet.TmuxTarget{Session: "s", Window: "@1", Pane: "%1"}
+	m.all[0].WaitingFor = fleet.WaitingPermission
+	m.all[0].Info.Pending = call
+	m.rebuild()
+
+	if _, cmd := m.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")}); cmd == nil || m.answering != "w" {
+		t.Fatal("a on a permission prompt sent nothing")
+	}
+	m.Update(answeredMsg{id: "w", callID: "t1", what: "waiter: Bash · pnpm db:migrate", approve: true})
+	if m.sel != "d" || m.answering != "" || !strings.HasPrefix(m.flash, "approved waiter") {
+		t.Errorf("after approving: sel=%q flash=%q; want the next needs-you selected", m.sel, m.flash)
+	}
+	m.setCursor(0)
+	if _, cmd := m.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")}); cmd != nil {
+		t.Error("the same prompt was answered twice")
+	}
+
+	m.all[0].WaitingFor, m.all[0].Info.Pending = "input needed", &fleet.Call{ID: "q", Tool: "AskUserQuestion", Summary: "Red or blue?"}
+	m.rebuild()
+	if _, cmd := m.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")}); cmd != nil || !strings.Contains(m.flash, "asking you") {
+		t.Errorf("d on a question: cmd=%v flash=%q", cmd != nil, m.flash)
+	}
+	if !strings.Contains(m.detailView(time.Now()), "asks: Red or blue?") {
+		t.Error("detail line doesn't show the question")
+	}
+}
+
+func TestQuestionWithoutTranscript(t *testing.T) {
+	m := testModel()
+	m.all[0].WaitingFor = "input needed" // the question's tool_use isn't in the transcript yet
+	m.rebuild()
+	if !strings.Contains(m.detailView(time.Now()), "asks: a question") {
+		t.Error("a question with no transcript entry shows nothing")
 	}
 }

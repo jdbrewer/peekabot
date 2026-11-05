@@ -58,6 +58,9 @@ type model struct {
 	hits    map[string]fleet.Hit // transcript matches for hitsFor
 	hitsFor string
 
+	answered  map[string]string // session id -> call id answered from the board
+	answering string            // session id with an answer in flight
+
 	count    int  // vim count prefix, e.g. 5j
 	pendingG bool // first g of gg
 	flash    string
@@ -72,6 +75,11 @@ type snapMsg struct {
 type tickMsg struct{}
 type peekMsg struct{ id, text string }
 type jumpedMsg struct{ err error }
+type answeredMsg struct {
+	id, callID, what string
+	approve          bool
+	err              error
+}
 type searchMsg struct {
 	query string
 	hits  map[string]fleet.Hit
@@ -83,7 +91,7 @@ func Run(f *fleet.Fleet, client string) error {
 	if dark, ok := darkBackground(fleet.Env("THEME"), fleet.ClientTheme(client)); ok {
 		lipgloss.SetHasDarkBackground(dark)
 	}
-	m := &model{f: f, client: client, filter: newFilter(), peekOn: true, peek: viewportFor()}
+	m := &model{f: f, client: client, filter: newFilter(), peekOn: true, peek: viewportFor(), answered: map[string]string{}}
 	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
@@ -195,10 +203,64 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		return m, m.snapshot()
+	case answeredMsg:
+		m.answering = ""
+		verb := "approved"
+		if !msg.approve {
+			verb = "denied"
+		}
+		if msg.err != nil {
+			m.flash = sWarn.Render("not "+verb+": "+msg.err.Error()) + sDim.Render(" · ⏎ to jump and answer there")
+			return m, nil
+		}
+		m.answered[msg.id] = msg.callID
+		m.f.MarkSeen(msg.id)
+		m.flash = verb + " " + msg.what
+		m.nextNeedAfter(msg.id)
+		return m, tea.Batch(m.snapshot(), m.capturePeek())
 	case tea.KeyMsg:
 		return m.key(msg)
 	}
 	return m, nil
+}
+
+// answer approves or denies the selected session's permission prompt. The fleet checks
+// the prompt again against a fresh snapshot and the pane's screen before sending a key.
+func (m *model) answer(approve bool) tea.Cmd {
+	s := m.selected()
+	switch {
+	case s == nil:
+		return nil
+	case !s.Answerable():
+		m.flash = "a/d answer permission prompts; " + s.Name + " is " + s.State.String()
+		if s.State == fleet.Waiting {
+			m.flash = s.Name + " is asking you something; ⏎ to jump and answer"
+		}
+		return nil
+	case m.answering != "":
+		return nil
+	case m.answered[s.ID] == s.Info.Pending.ID:
+		m.flash = "already answered; waiting for " + s.Name + " to move on"
+		return nil
+	}
+	m.answering = s.ID
+	id, call := s.ID, s.Info.Pending
+	what := s.Name + ": " + call.Tool + " · " + call.Summary
+	return func() tea.Msg {
+		return answeredMsg{id: id, callID: call.ID, what: what, approve: approve, err: m.f.Answer(id, call.ID, approve)}
+	}
+}
+
+// nextNeedAfter moves the cursor off a session that was just dealt with, to the next
+// one that still needs you, so the queue can be cleared without moving by hand.
+func (m *model) nextNeedAfter(id string) {
+	for i := 1; i <= len(m.items); i++ {
+		j := (m.cur + i) % len(m.items)
+		if s := m.items[j]; s.ID != id && s.State.NeedsYou() {
+			m.setCursor(j)
+			return
+		}
+	}
 }
 
 func (m *model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -282,6 +344,8 @@ func (m *model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.snapshot()
 	case "enter", "o":
 		return m, m.jump()
+	case "a", "d":
+		return m, m.answer(s == "a")
 	case "x":
 		if sel := m.selected(); sel != nil {
 			m.f.MarkSeen(sel.ID)

@@ -37,7 +37,32 @@ var (
 	sWarn   = lipgloss.NewStyle().Foreground(cWarn)
 	sSel    = lipgloss.NewStyle().Background(cSel)
 	sRule   = lipgloss.NewStyle().Foreground(cIdle)
+	sAsk    = lipgloss.NewStyle().Foreground(cWait)
 )
+
+// asking is what a waiting session is blocked on: verb "wants" with the tool call
+// ("Bash · pnpm db:migrate"), or "asks" with the question. Both are "" when it isn't
+// waiting or nothing says why.
+func asking(s fleet.Session) (verb, what string) {
+	if s.State != fleet.Waiting {
+		return "", ""
+	}
+	p := s.Info.Pending
+	if p != nil && p.Tool == "AskUserQuestion" && p.Summary != "" {
+		return "asks", p.Summary
+	}
+	if s.WaitingFor == "input needed" {
+		// Claude Code writes a question's tool_use only once it is answered
+		return "asks", "a question"
+	}
+	if p == nil {
+		return "", ""
+	}
+	if p.Summary == "" || p.Summary == p.Tool {
+		return "wants", p.Tool
+	}
+	return "wants", p.Tool + " · " + p.Summary
+}
 
 func stateStyle(st fleet.State) (string, lipgloss.Style) {
 	switch st {
@@ -240,6 +265,13 @@ func (m *model) rowView(s fleet.Session, selected bool, w int, now time.Time) st
 		taskW := rest * 55 / 100
 		doing = sDim.Render(pad(clip(s.Info.Action, rest-taskW-1), rest-taskW))
 		task = pad(clip(task, taskW-1), taskW)
+	} else if verb, a := asking(s); a != "" && rest >= 40 {
+		if verb == "asks" {
+			a = "asks · " + a
+		}
+		taskW := rest * 45 / 100
+		doing = sAsk.Render(pad(clip(a, rest-taskW-1), rest-taskW))
+		task = pad(clip(task, taskW-1), taskW)
 	} else {
 		task = pad(clip(task, rest), rest)
 	}
@@ -302,7 +334,13 @@ func (m *model) detailView(now time.Time) string {
 		line2 = " asked: " + s.Info.LastPrompt
 	}
 	line2 = sDim.Render(line2)
-	if h := m.hit(s.ID); h != nil && h.Snippet != "" {
+	if verb, a := asking(*s); a != "" {
+		keys := "⏎ jump to answer"
+		if s.Answerable() {
+			keys = "a approve · d deny"
+		}
+		line2 = sAsk.Render(" "+verb+": "+a) + sDim.Render("   "+keys)
+	} else if h := m.hit(s.ID); h != nil && h.Snippet != "" {
 		n := "1 hit"
 		if h.Count != 1 {
 			n = fmt.Sprintf("%d hits", h.Count)
@@ -378,6 +416,8 @@ func (m *model) helpView() string {
 		{"] / [", "next / previous session that needs you"},
 		{"enter / o", "jump to the session's tmux pane"},
 		{"x", "mark seen (drop it from needs-you without jumping)"},
+		{"a / d", "approve / deny a permission prompt without jumping; peekabot first checks"},
+		{"", "  the prompt on screen is the one shown here, and refuses if it can't tell"},
 		{"p", "toggle peek"},
 		{"l / h, tab", "focus peek / list; j k gg G C-d C-u scroll the peek"},
 		{"/", "search names, titles, and full transcripts: your prompts, replies, tool output"},

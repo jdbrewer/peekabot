@@ -28,25 +28,37 @@ type TranscriptInfo struct {
 	LastText    string    `json:"lastText,omitempty"` // first line of the last assistant text
 	Tokens      int       `json:"contextTokens"`      // context size of the last main-thread request
 	LastEventAt time.Time `json:"lastEventAt,omitempty"`
+	Pending     *Call     `json:"pending,omitempty"` // newest tool_use still waiting for its result
 	Edits       []Edit    `json:"-"`
+}
+
+// Call is a tool_use that has no result yet: what a permission prompt or question is about.
+// A Call is never modified after it is created, so sharing the pointer is safe.
+type Call struct {
+	ID      string `json:"id"`
+	Tool    string `json:"tool"`
+	Summary string `json:"summary"` // the command, file, URL or question, on one line
+	// match is text the permission dialog for this call must show; "" when there is
+	// nothing reliable to compare, and then the board won't answer the prompt.
+	match string
 }
 
 // transcriptTail incrementally reads a .jsonl transcript by byte offset.
 type transcriptTail struct {
-	path    string
-	offset  int64
-	mtime   time.Time
-	size    int64
-	info    TranscriptInfo
-	openUse map[string]bool // tool_use ids without a result yet
-	index   bool            // collect searchable text into corpus
-	corpus  corpus
+	path   string
+	offset int64
+	mtime  time.Time
+	size   int64
+	info   TranscriptInfo
+	open   []*Call // tool_uses without a result yet, oldest first
+	index  bool    // collect searchable text into corpus
+	corpus corpus
 }
 
 const editWindow = 30 * time.Minute
 
 func newTranscriptTail(path string, index bool) *transcriptTail {
-	return &transcriptTail{path: path, openUse: map[string]bool{}, index: index}
+	return &transcriptTail{path: path, index: index}
 }
 
 // findTranscript locates <sessionId>.jsonl under projectsDir. The directory name is a
@@ -180,7 +192,7 @@ func (t *transcriptTail) consume(line []byte) {
 		for _, b := range blocks {
 			switch b.Type {
 			case "tool_result":
-				delete(t.openUse, b.ToolUseID)
+				t.close(b.ToolUseID)
 				if t.index {
 					t.corpus.add(FromTool, l.Timestamp, textOf(b.Content))
 				}
@@ -190,7 +202,7 @@ func (t *transcriptTail) consume(line []byte) {
 				}
 			}
 		}
-		if len(t.openUse) == 0 {
+		if len(t.open) == 0 {
 			in.Tool = ""
 		}
 		return
@@ -218,13 +230,27 @@ func (t *transcriptTail) consume(line []byte) {
 			if t.index {
 				t.corpus.add(FromTool, l.Timestamp, string(b.Input))
 			}
-			t.openUse[b.ID] = true
+			t.open = append(t.open, newCall(b.ID, b.Name, b.Input))
+			in.Pending = t.open[len(t.open)-1]
 			in.Tool = b.Name
 			in.Action = summarizeTool(b.Name, b.Input)
 			if p := editedPath(b.Name, b.Input); p != "" {
 				in.Edits = append(in.Edits, Edit{Path: p, At: l.Timestamp})
 			}
 		}
+	}
+}
+
+func (t *transcriptTail) close(id string) {
+	for i, c := range t.open {
+		if c.ID == id {
+			t.open = append(t.open[:i:i], t.open[i+1:]...)
+			break
+		}
+	}
+	t.info.Pending = nil
+	if n := len(t.open); n > 0 {
+		t.info.Pending = t.open[n-1]
 	}
 }
 
@@ -247,6 +273,36 @@ type toolInput struct {
 	Query        string `json:"query"`
 	URL          string `json:"url"`
 	Skill        string `json:"skill"`
+	Questions    []struct {
+		Question string `json:"question"`
+	} `json:"questions"`
+}
+
+// matchLen is how much of a Bash command must appear in its permission dialog. Long
+// commands wrap there, so only a prefix is compared, and whitespace is ignored.
+const matchLen = 40
+
+func newCall(id, tool string, raw json.RawMessage) *Call {
+	var in toolInput
+	_ = json.Unmarshal(raw, &in)
+	c := &Call{ID: id, Tool: tool}
+	switch {
+	case tool == "AskUserQuestion" && len(in.Questions) > 0:
+		c.Summary = firstLine(in.Questions[0].Question)
+	case tool == "Bash" && in.Command != "":
+		c.Summary = firstLine(in.Command)
+		r := []rune(c.Summary)
+		c.match = string(r[:min(len(r), matchLen)])
+	case editedPath(tool, raw) != "":
+		p := editedPath(tool, raw)
+		c.Summary, c.match = p, filepath.Base(p)
+	default:
+		c.Summary = summarizeTool(tool, raw)
+		if i := strings.Index(c.Summary, " · "); i >= 0 {
+			c.Summary = c.Summary[i+len(" · "):]
+		}
+	}
+	return c
 }
 
 func editedPath(tool string, raw json.RawMessage) string {

@@ -39,7 +39,8 @@ type Session struct {
 	Repo       string         `json:"repo"`
 	RepoRoot   string         `json:"repoRoot,omitempty"`
 	Version    string         `json:"version"`
-	Status     string         `json:"status"` // raw status from Claude Code
+	Status     string         `json:"status"`               // raw status from Claude Code
+	WaitingFor string         `json:"waitingFor,omitempty"` // what a waiting session waits for
 	State      State          `json:"state"`
 	StateSince time.Time      `json:"stateSince"`
 	Tmux       TmuxTarget     `json:"tmux"`
@@ -110,27 +111,31 @@ func (c Config) withDefaults() Config {
 
 // Fleet holds the caches that make repeated snapshots cheap.
 type Fleet struct {
-	mu    sync.Mutex
-	cfg   Config
-	alive procAlive
-	tails map[string]*transcriptTail
-	roots map[string]string // cwd -> git toplevel
-	teams *teamIndex
-	seen  *seenStore
-	panes func() map[string]Pane
-	now   func() time.Time
+	mu     sync.Mutex
+	cfg    Config
+	alive  procAlive
+	tails  map[string]*transcriptTail
+	roots  map[string]string // cwd -> git toplevel
+	teams  *teamIndex
+	seen   *seenStore
+	panes  func() map[string]Pane
+	screen func(pane string) string
+	send   func(pane, key string) error
+	now    func() time.Time
 }
 
 func New(cfg Config) *Fleet {
 	cfg = cfg.withDefaults()
 	f := &Fleet{
-		cfg:   cfg,
-		tails: map[string]*transcriptTail{},
-		roots: map[string]string{},
-		teams: newTeamIndex(filepath.Join(cfg.ClaudeDir, "teams")),
-		seen:  loadSeen(cfg.StateFile, cfg.legacyStateFile),
-		panes: ListPanes,
-		now:   time.Now,
+		cfg:    cfg,
+		tails:  map[string]*transcriptTail{},
+		roots:  map[string]string{},
+		teams:  newTeamIndex(filepath.Join(cfg.ClaudeDir, "teams")),
+		seen:   loadSeen(cfg.StateFile, cfg.legacyStateFile),
+		panes:  ListPanes,
+		screen: captureScreen,
+		send:   sendKey,
+		now:    time.Now,
 	}
 	f.alive = defaultProcAlive
 	return f
@@ -168,7 +173,7 @@ func (f *Fleet) snapshot(lite bool) ([]Session, error) {
 		live[r.SessionID] = true
 		s := Session{
 			ID: r.SessionID, PID: r.PID, Name: r.Name, Cwd: r.Cwd, Version: r.Version,
-			Status: r.Status, StateSince: msTime(r.StatusUpdatedAt), Tmux: ParseTmuxTarget(r.Tmux),
+			Status: r.Status, WaitingFor: r.WaitingFor, StateSince: msTime(r.StatusUpdatedAt), Tmux: ParseTmuxTarget(r.Tmux),
 		}
 		if s.StateSince.IsZero() {
 			s.StateSince = msTime(r.StartedAt)

@@ -25,6 +25,7 @@ type rawSession struct {
 	Status          string `json:"status"`
 	StartedAt       int64  `json:"startedAt"`
 	StatusUpdatedAt int64  `json:"statusUpdatedAt"`
+	WaitingFor      string `json:"waitingFor"` // "permission prompt", "input needed"
 	Tmux            string `json:"tmux"`
 }
 

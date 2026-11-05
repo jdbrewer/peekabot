@@ -20,6 +20,11 @@ the tmux status line. You check it when you choose to.
 | ○ | idle | finished, and you've seen it |
 | ⚠ | collision | another session in the same checkout edited the same file in the last 30 minutes, or is working on the same branch |
 
+A waiting session shows what it wants, e.g. `wants: Bash · pnpm db:migrate`. Press `a` to
+approve it or `d` to deny it without leaving the board, and the cursor moves on to the next
+session that needs you. Before sending the key, peekabot checks that the prompt on that pane's
+screen is the one shown on the board. If it can't tell, it sends nothing and tells you to jump.
+
 Press `/` to search every session's transcript, not just titles. It's handy when all you
 remember is a name or a phrase from your prompt:
 
@@ -86,6 +91,7 @@ the `CCFLEET_*` environment variables all keep working.
 | `]` `[` | next / previous session that needs you |
 | `Enter` `o` | jump to its tmux pane |
 | `x` | mark seen without jumping |
+| `a` `d` | approve / deny the selected session's permission prompt (Yes / No) without jumping |
 | `p` | toggle the live peek (beside the list at ≥150 columns, below it otherwise) |
 | `l` `h` / `Tab` | focus peek / list. In the peek, `j k gg G C-d C-u` scroll |
 | `/` | search by space-separated terms. Matches names, titles, branches **and full transcripts**: your prompts, Claude's replies, tool output. Rows matched by transcript show a snippet. `Enter` keeps the search, `Esc` clears it |
@@ -112,6 +118,10 @@ peekabot only reads files. It needs no hooks and no daemon. It joins:
   the process tree. You keep the board, but lose how long each session has been in its state.
 - **Jump and peek need tmux.** `peekabot ls` and `peekabot grep` work anywhere.
 - **Search covers live sessions only**, and only the first 16KB of each tool output.
+- **Approve and deny only answer prompts peekabot can match to the screen**: Bash commands
+  and file edits. For MCP tools, web fetches and subagents' prompts it refuses, and you jump
+  to answer. It presses only the plain Yes or No, never "always allow". Questions
+  (AskUserQuestion) are never answered from the board.
 - **Collisions only see Claude's Edit and Write tools.** A file changed with `sed` in Bash isn't counted.
 - **"Done" depends on knowing what you've looked at**: visible panes, jumps, `x`, and the
   optional focus hook. A pane you read without focusing it still counts as unseen.
