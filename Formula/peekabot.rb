@@ -2,30 +2,30 @@
 class Peekabot < Formula
   desc "Quiet board for all your Claude Code sessions in tmux"
   homepage "https://github.com/jdbrewer/peekabot"
-  version "0.2.0"
+  version "0.3.0"
   license "MIT"
 
   depends_on "tmux"
 
   on_macos do
     on_arm do
-      url "https://github.com/jdbrewer/peekabot/releases/download/v0.2.0/peekabot_0.2.0_darwin_arm64.tar.gz"
-      sha256 "fd05db2223c2bcd916b7b9b62e2189a3f9fe8ee2be9d3b0ca0b71d0d30611a0b"
+      url "https://github.com/jdbrewer/peekabot/releases/download/v0.3.0/peekabot_0.3.0_darwin_arm64.tar.gz"
+      sha256 "972d3ffe3093c4691816f3ae3b03e6523c156f498a0ed0b749da7913cc8b0caa"
     end
     on_intel do
-      url "https://github.com/jdbrewer/peekabot/releases/download/v0.2.0/peekabot_0.2.0_darwin_amd64.tar.gz"
-      sha256 "20bdcad146600962d1d4eb8d6f807582385f924ca0cacca9ded4342d99d8296e"
+      url "https://github.com/jdbrewer/peekabot/releases/download/v0.3.0/peekabot_0.3.0_darwin_amd64.tar.gz"
+      sha256 "e8801db162ce54ee227916af2a6b693844603810c35fb97cb135f4d4a861f05e"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/jdbrewer/peekabot/releases/download/v0.2.0/peekabot_0.2.0_linux_arm64.tar.gz"
-      sha256 "df3e0b7034961fe83497958c2bb17e84870ef3a9b1864a5ff8f691fa6dc281e8"
+      url "https://github.com/jdbrewer/peekabot/releases/download/v0.3.0/peekabot_0.3.0_linux_arm64.tar.gz"
+      sha256 "35e1fde5e9f0dec4d35d415631d44f753c44206efd2c7499bdc4bfe7b0c9f5f7"
     end
     on_intel do
-      url "https://github.com/jdbrewer/peekabot/releases/download/v0.2.0/peekabot_0.2.0_linux_amd64.tar.gz"
-      sha256 "646e7fde3b2652b92743532eeaca50990734f122813bfecc7e99bba72319e586"
+      url "https://github.com/jdbrewer/peekabot/releases/download/v0.3.0/peekabot_0.3.0_linux_amd64.tar.gz"
+      sha256 "54e986f89fd15495429a8bb32a9d25290d20baffecb7da22abf95a761cb4673d"
     end
   end
 
