@@ -110,6 +110,52 @@ def sh(*args, **kw):
     return subprocess.run(args, check=True, text=True, capture_output=True, **kw).stdout
 
 
+# api-3f's work in the api repo: policy.ts as it was before the session, then as it is now
+POLICY_BEFORE = """\
+export const limits = {
+  free: { perMinute: 60 },
+  pro: { perMinute: 600 },
+};
+
+export function allow(tier: keyof typeof limits): boolean {
+  return true;
+}
+"""
+POLICY_AFTER = """\
+import { TokenBucket } from "./store";
+
+export const limits = {
+  free: { perMinute: 60, burst: 10 },
+  pro: { perMinute: 600, burst: 100 },
+};
+
+// one bucket per tenant, plus a shared fallback so no tenant starves the rest
+export function allow(tenant: string, tier: keyof typeof limits): boolean {
+  return TokenBucket.for(tenant, limits[tier]).take();
+}
+"""
+STORE = """\
+export class TokenBucket {
+  static for(tenant: string, rate: { perMinute: number; burst: number }): TokenBucket {
+    return new TokenBucket();
+  }
+  take(): boolean {
+    return true;
+  }
+}
+"""
+
+
+def demo_git(repo, *args, date=None):
+    """git with a fixed identity and none of the machine's config (signing, hooks)."""
+    env = dict(os.environ, GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1",
+               GIT_AUTHOR_NAME="demo", GIT_AUTHOR_EMAIL="demo@example.com",
+               GIT_COMMITTER_NAME="demo", GIT_COMMITTER_EMAIL="demo@example.com")
+    if date:
+        env["GIT_AUTHOR_DATE"] = env["GIT_COMMITTER_DATE"] = date
+    return subprocess.run(["git", "-C", repo, *args], check=True, text=True, capture_output=True, env=env).stdout
+
+
 def tmux(*args):
     return sh("tmux", *args)
 
@@ -181,6 +227,11 @@ def build(demo: Path):
         d.mkdir(parents=True)
         sh("git", "init", "-q", str(d))
         repos[repo] = str(d)
+    limits = Path(repos["api"]) / "src" / "limits"
+    limits.mkdir(parents=True)
+    (limits / "policy.ts").write_text(POLICY_BEFORE)
+    demo_git(repos["api"], "add", ".")
+    demo_git(repos["api"], "commit", "-q", "-m", "Rate limit stub", date="2026-01-01T00:00:00Z")
 
     tmux("new-session", "-d", "-s", TMUX, "-n", "board", "-x", str(COLS), "-y", str(ROWS))
     seen = {}
@@ -215,6 +266,12 @@ def build(demo: Path):
             team_panes[pane] = extra["team"]
         if name == "api-44":
             lead = sid
+    # during the session: api-3f committed the bucket store and is mid-way through policy.ts
+    (limits / "store.ts").write_text(STORE)
+    demo_git(repos["api"], "add", "src/limits/store.ts")
+    demo_git(repos["api"], "commit", "-q", "-m", "Add a token bucket per tenant",
+             date=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 60)))
+    (limits / "policy.ts").write_text(POLICY_AFTER)
     members = [{"name": "team-lead", "agentType": "team-lead"}] + [
         {"name": role, "agentType": "general-purpose", "tmuxPaneId": pane} for pane, (_, role) in team_panes.items()]
     (claude / "teams" / "invoices").mkdir(parents=True)
@@ -242,9 +299,15 @@ def render(demo: Path, out: Path, scale=2):
         chrome = shutil.which("google-chrome") or shutil.which("chromium") or "chromium"
     w, h = html.read_text().split("<!--size ")[1].split("-->")[0].split("x")
     out.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars", f"--force-device-scale-factor={scale}",
-                    f"--window-size={w},{h}", f"--screenshot={out}", html.as_uri()],
-                   check=True, capture_output=True)
+    cmd = [chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars", f"--force-device-scale-factor={scale}",
+           f"--window-size={w},{h}", f"--screenshot={out}", html.as_uri()]
+    for attempt in (1, 2):  # headless Chrome now and then hangs on a page it rendered fine a moment ago
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, timeout=60)
+            return
+        except subprocess.TimeoutExpired:
+            if attempt == 2:
+                raise
 
 
 def press(*keys, settle=0.7):
@@ -348,13 +411,33 @@ def check(demo: Path, bindir: Path):
         if got != want:
             problems.append(f"after {key!r} the prompt received {got!r}, want {want!r}")
             screen = tmux("capture-pane", "-p", "-t", f"{TMUX}:board")
+    tmux("respawn-pane", "-k", "-t", f"{TMUX}:board", f"env {env_s} {bindir / 'peekabot'}")
+    time.sleep(2.5)
+    tmux("send-keys", "-t", f"{TMUX}:board", "c")
+    time.sleep(1.5)
+    review = tmux("capture-pane", "-p", "-t", f"{TMUX}:board")
+    for needle in ("changes · api-3f", "2 files written · 1 not committed", "/tmp/acme/src/api\n",
+                   "M src/limits/policy.ts", "+7 −4", "= src/limits/store.ts", "Add a token bucket per tenant"):
+        if needle not in review:
+            problems.append(f"change review missing {needle!r}")
+    if "/private/tmp" in review:
+        problems.append("change review shows the symlink-resolved repo path")
+    tmux("send-keys", "-t", f"{TMUX}:board", "l", "G")  # the end of the diff is below the fold
+    time.sleep(1.0)
+    if "TokenBucket.for(tenant" not in tmux("capture-pane", "-p", "-t", f"{TMUX}:board"):
+        problems.append("G in the focused review doesn't reach the end of the diff")
+    tmux("send-keys", "-t", f"{TMUX}:board", "g", "g")
+    time.sleep(1.0)
+    top = tmux("capture-pane", "-p", "-t", f"{TMUX}:board")
+    if "2 files written" not in top or "▸ ⏸" not in top:
+        problems.append("gg in the focused review should scroll it to the top and leave the list cursor alone")
     if by["api-3f"].get("waitingFor") != "permission prompt" or \
             (by["api-3f"]["transcript"].get("pending") or {}).get("summary") != "pnpm db:migrate":
         problems.append(f"ls --json lacks the pending call: {by['api-3f'].get('waitingFor')} {by['api-3f']['transcript'].get('pending')}")
     if problems:
         print("FAIL\n  " + "\n  ".join(problems) + "\n--- board ---\n" + screen)
         sys.exit(1)
-    print(f"ok: {len(ss)} sessions, states {states}, collisions, team, grep, board, outcomes, approve and deny all as expected")
+    print(f"ok: {len(ss)} sessions, states {states}, collisions, team, grep, board, outcomes, approve, deny and change review all as expected")
 
 
 def main():
@@ -371,6 +454,7 @@ def main():
         img = ROOT / "docs" / "img"
         board(demo, bindir, [], img / "board.png")
         board(demo, bindir, [["/"], ["a", "d", "a"], ["Enter"]], img / "search.png")
+        board(demo, bindir, [["c"]], img / "changes.png")
         if "--no-gif" not in sys.argv:
             gif(demo, bindir, img / "tour.gif")
     finally:

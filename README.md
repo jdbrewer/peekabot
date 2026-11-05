@@ -26,6 +26,12 @@ approve it or `d` to deny it without leaving the board, and the cursor moves on 
 session that needs you. Before sending the key, peekabot checks that the prompt on that pane's
 screen is the one shown on the board. If it can't tell, it sends nothing and tells you to jump.
 
+Press `c` to see what a session changed before you jump to it. You get every file it wrote,
+compared with HEAD in that file's own repo (worktrees included), any commits it has made since
+it started, and the diff:
+
+![the change review for api-3f: policy.ts modified +7 −4, store.ts already committed in "Add a token bucket per tenant", then the diff](docs/img/changes.png)
+
 Press `/` to search every session's transcript, not just titles. It's handy when all you
 remember is a name or a phrase from your prompt:
 
@@ -102,6 +108,7 @@ environment variables keep working in the meantime.
 | `Enter` `o` | jump to its tmux pane |
 | `x` | mark seen without jumping |
 | `a` `d` | approve / deny the selected session's permission prompt (Yes / No) without jumping |
+| `c` | swap the peek for the session's changes: each file it wrote against HEAD, commits since it started, and the diff |
 | `p` | toggle the live peek (beside the list at ≥150 columns, below it otherwise) |
 | `l` `h` / `Tab` | focus peek / list. In the peek, `j k gg G C-d C-u` scroll |
 | `/` | search by space-separated terms. Matches names, titles, branches **and full transcripts**: your prompts, Claude's replies, tool output. Rows matched by transcript show a snippet. `Enter` keeps the search, `Esc` clears it |
@@ -132,7 +139,7 @@ peekabot only reads files. It needs no hooks and no daemon. It joins:
   and file edits. For MCP tools, web fetches and subagents' prompts it refuses, and you jump
   to answer. It presses only the plain Yes or No, never "always allow". Questions
   (AskUserQuestion) are never answered from the board.
-- **Collisions only see Claude's Edit and Write tools.** A file changed with `sed` in Bash isn't counted.
+- **Collisions and the change review only see Claude's Edit and Write tools.** A file changed with `sed` in Bash isn't counted.
 - **"Done" depends on knowing what you've looked at**: visible panes, jumps, `x`, and the
   optional focus hook. A pane you read without focusing it still counts as unseen.
 - **Context % assumes a 200k window**, unless the model name or token count says 1M.

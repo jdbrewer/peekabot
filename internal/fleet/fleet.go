@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,6 +45,7 @@ type Session struct {
 	WaitingFor string         `json:"waitingFor,omitempty"` // what a waiting session waits for
 	State      State          `json:"state"`
 	StateSince time.Time      `json:"stateSince"`
+	Started    time.Time      `json:"started"`
 	Tmux       TmuxTarget     `json:"tmux"`
 	Window     string         `json:"window,omitempty"` // "index:name"
 	Visible    bool           `json:"visible"`
@@ -193,8 +195,9 @@ func (f *Fleet) snapshot(lite bool) ([]Session, error) {
 			ID: r.SessionID, PID: r.PID, Name: r.Name, Cwd: r.Cwd, Version: r.Version,
 			Status: r.Status, WaitingFor: r.WaitingFor, StateSince: msTime(r.StatusUpdatedAt), Tmux: ParseTmuxTarget(r.Tmux),
 		}
+		s.Started = msTime(r.StartedAt)
 		if s.StateSince.IsZero() {
-			s.StateSince = msTime(r.StartedAt)
+			s.StateSince = s.Started
 		}
 		s.Repo = filepath.Base(r.Cwd)
 		if !lite {
@@ -286,6 +289,7 @@ func (f *Fleet) transcript(id string, now time.Time) TranscriptInfo {
 	_ = t.Refresh(now)
 	info := t.info
 	info.Edits = append([]Edit(nil), t.info.Edits...)
+	info.Written = slices.Clone(t.info.Written)
 	return info
 }
 

@@ -18,6 +18,9 @@ import (
 
 const refreshEvery = time.Second
 
+// reviewEvery limits how often the change review re-runs git while it is open.
+const reviewEvery = 3 * time.Second
+
 type focus int
 
 const (
@@ -55,6 +58,10 @@ type model struct {
 	peekFor       string
 	help          bool
 
+	changes   bool      // the peek shows the selected session's changes instead of its pane
+	reviewFor string    // session the last review was run for
+	reviewAt  time.Time // when; git runs at most every reviewEvery per session
+
 	hits    map[string]fleet.Hit // transcript matches for hitsFor
 	hitsFor string
 
@@ -73,7 +80,10 @@ type snapMsg struct {
 	err error
 }
 type tickMsg struct{}
-type peekMsg struct{ id, text string }
+type peekMsg struct {
+	id, text string
+	changes  bool // a change review, not a pane capture
+}
 type jumpedMsg struct{ err error }
 type answeredMsg struct {
 	id, callID, what string
@@ -152,11 +162,22 @@ func tick() tea.Cmd {
 
 func (m *model) capturePeek() tea.Cmd {
 	s := m.selected()
-	if !m.peekOn || s == nil || !s.Tmux.Valid() {
+	if !m.peekOn || s == nil {
+		return nil
+	}
+	if m.changes {
+		if s.ID == m.reviewFor && time.Since(m.reviewAt) < reviewEvery {
+			return nil
+		}
+		m.reviewFor, m.reviewAt = s.ID, time.Now()
+		sess := *s
+		return func() tea.Msg { return peekMsg{sess.ID, renderReview(sess, fleet.Review(sess)), true} }
+	}
+	if !s.Tmux.Valid() {
 		return nil
 	}
 	id, pane, lines := s.ID, s.Tmux.Pane, max(m.peek.Height, 10)+200
-	return func() tea.Msg { return peekMsg{id, fleet.Capture(pane, lines)} }
+	return func() tea.Msg { return peekMsg{id, fleet.Capture(pane, lines), false} }
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -186,11 +207,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		return m, m.snapshot()
 	case peekMsg:
-		if msg.id == m.sel {
-			atBottom := m.peek.AtBottom() || m.peekFor != msg.id
+		if msg.id == m.sel && msg.changes == m.changes { // drop a capture from before a c toggle
+			fresh := m.peekFor != msg.id
+			follow := m.peek.AtBottom() || fresh
 			m.peek.SetContent(fitWidth(msg.text, m.peek.Width))
-			if atBottom {
-				m.peek.GotoBottom()
+			switch {
+			case msg.changes && fresh:
+				m.peek.GotoTop() // a review reads top down
+			case !msg.changes && follow:
+				m.peek.GotoBottom() // a pane is read at its live end
 			}
 			m.peekFor = msg.id
 		}
@@ -303,6 +328,10 @@ func (m *model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if s == "g" {
 		if m.pendingG {
 			m.pendingG = false
+			if m.focus == focusPeek {
+				m.peek.GotoTop()
+				return m, nil
+			}
 			return m.motion("top", n)
 		}
 		m.pendingG = true
@@ -327,6 +356,12 @@ func (m *model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.filter.SetValue("")
 			m.rebuild()
 		}
+		m.layout()
+		return m, m.capturePeek()
+	case "c":
+		m.changes = !m.changes
+		m.peekOn = true
+		m.peekFor, m.reviewFor = "", ""
 		m.layout()
 		return m, m.capturePeek()
 	case "p":

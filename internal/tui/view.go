@@ -121,7 +121,7 @@ func (m *model) layout() {
 		m.peek.Width = m.width
 		m.peek.Height = max(m.bodyHeight()*45/100, 3)
 	}
-	m.peekFor = "" // force a re-fit on next capture
+	m.peekFor, m.reviewFor = "", "" // force a re-fit on next capture
 }
 
 // fitWidth truncates each line (ANSI-aware) so a captured pane never wraps the layout.
@@ -392,21 +392,27 @@ func (m *model) detailView(now time.Time) string {
 }
 
 func (m *model) peekView() string {
-	title := " peek"
+	title, swap := " peek", "c changes"
+	if m.changes {
+		title, swap = " changes", "c live pane"
+	}
 	if s := m.selected(); s != nil {
-		title += " · " + s.Name + " " + s.Tmux.Pane
+		title += " · " + s.Name
+		if !m.changes {
+			title += " " + s.Tmux.Pane
+		}
 	}
 	if m.focus == focusPeek {
-		title += "  (j/k scroll · h back)"
+		title += "  (j/k scroll · h back · " + swap + ")"
 		title = sTitle.Render(title)
 	} else {
-		title = sDim.Render(title + "  (l to focus)")
+		title = sDim.Render(title + "  (l to focus · " + swap + ")")
 	}
 	if !m.sidePeek() {
 		title = sRule.Render("──") + title
 	}
 	body := m.peek.View()
-	if s := m.selected(); s != nil && !s.Tmux.Valid() {
+	if s := m.selected(); s != nil && !s.Tmux.Valid() && !m.changes {
 		body = sDim.Render("  not running in tmux")
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, ansi.Truncate(title, m.peek.Width, ""),
@@ -430,7 +436,7 @@ func (m *model) footerView() string {
 	if m.flash != "" {
 		return " " + m.flash
 	}
-	hint := " j/k move · ]/[ next need · ⏎ jump · p peek · x seen · / filter · t group · q quit"
+	hint := " j/k move · ]/[ next need · ⏎ jump · p peek · c changes · x seen · / filter · t group · q quit"
 	if f := m.filter.Value(); f != "" {
 		hint = fmt.Sprintf(" /%s: %d of %d sessions%s (esc clears) ·", f, len(m.items), len(m.all), m.hitNote()) + hint
 	}
@@ -452,6 +458,7 @@ func (m *model) helpView() string {
 		{"a / d", "approve / deny a permission prompt without jumping; peekabot first checks"},
 		{"", "  the prompt on screen is the one shown here, and refuses if it can't tell"},
 		{"p", "toggle peek"},
+		{"c", "swap the peek for the session's changes: files it wrote, git status, commits, diff"},
 		{"l / h, tab", "focus peek / list; j k gg G C-d C-u scroll the peek"},
 		{"/", "search names, titles, and full transcripts: your prompts, replies, tool output"},
 		{"", "  (space-separated terms all must match; tab / shift-tab or C-j / C-k move"},
@@ -564,4 +571,99 @@ func withBackground(row string, w int) string {
 	}
 	row = strings.ReplaceAll(row, "\x1b[0m", "\x1b[0m"+bg)
 	return bg + row + strings.Repeat(" ", max(w-lipgloss.Width(row), 0)) + "\x1b[0m"
+}
+
+var (
+	sAdd = lipgloss.NewStyle().Foreground(cDone)
+	sDel = lipgloss.NewStyle().Foreground(cWarn)
+)
+
+// renderReview is the change review shown in the peek pane: per repo, each file the
+// session wrote with its state against HEAD, the commits it may already be in, then the diff.
+func renderReview(s fleet.Session, rs []fleet.RepoChanges) string {
+	if len(s.Info.Written) == 0 {
+		return sDim.Render("  no files written by this session yet\n  (only Edit and Write are seen; changes made through Bash aren't)")
+	}
+	var b strings.Builder
+	files, pending := 0, 0
+	for _, r := range rs {
+		for _, f := range r.Files {
+			files++
+			if r.Root != "" && f.Status != "same" {
+				pending++
+			}
+		}
+	}
+	fmt.Fprintf(&b, " %d %s written · %d not committed\n", files, plural(files, "file"), pending)
+	var diffs []string
+	for _, r := range rs {
+		b.WriteString("\n")
+		if r.Root == "" {
+			b.WriteString(sHeader.Render(" outside git") + "\n")
+		} else {
+			b.WriteString(sHeader.Render(" "+tildify(r.Root)) + "\n")
+		}
+		w := 0
+		for _, f := range r.Files {
+			w = max(w, lipgloss.Width(f.Path))
+		}
+		for _, f := range r.Files {
+			b.WriteString("   " + fileLine(f, r.Root != "", w) + "\n")
+		}
+		if r.Err != "" {
+			b.WriteString(sWarn.Render("   git: "+r.Err) + "\n")
+		}
+		if len(r.Commits) > 0 {
+			b.WriteString(sDim.Render("   commits since the session started:") + "\n")
+			for _, c := range r.Commits {
+				b.WriteString(sDim.Render("     "+c) + "\n")
+			}
+		}
+		if r.Diff != "" {
+			diffs = append(diffs, r.Diff)
+		}
+	}
+	for _, d := range diffs {
+		b.WriteString("\n" + strings.TrimRight(d, "\n") + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func fileLine(f fleet.FileChange, inGit bool, w int) string {
+	mark, what := " ", ""
+	counts := func() string {
+		if f.Binary {
+			return sDim.Render("binary")
+		}
+		var parts []string
+		if f.Added > 0 {
+			parts = append(parts, sAdd.Render(fmt.Sprintf("+%d", f.Added)))
+		}
+		if f.Removed > 0 {
+			parts = append(parts, sDel.Render(fmt.Sprintf("−%d", f.Removed)))
+		}
+		return strings.Join(parts, " ")
+	}
+	switch {
+	case !inGit && f.Status == "deleted":
+		mark, what = sDel.Render("D"), sDim.Render("deleted")
+	case !inGit:
+		mark = " "
+	case f.Status == "modified":
+		mark, what = sAsk.Render("M"), counts()
+	case f.Status == "new":
+		mark, what = sAdd.Render("A"), counts()+sDim.Render(" new")
+	case f.Status == "deleted":
+		mark, what = sDel.Render("D"), counts()+sDim.Render(" deleted")
+	default:
+		mark, what = sDim.Render("="), sDim.Render("no diff vs HEAD (committed, or undone)")
+	}
+	return mark + " " + pad(f.Path, w) + "  " + what
+}
+
+func plural(n int, word string) string {
+	if n == 1 {
+		return word
+	}
+	return word + "s"
 }

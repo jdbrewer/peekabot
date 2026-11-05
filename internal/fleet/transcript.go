@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -35,6 +36,7 @@ type TranscriptInfo struct {
 	LastEventAt time.Time `json:"lastEventAt,omitempty"`
 	Pending     *Call     `json:"pending,omitempty"` // newest tool_use still waiting for its result
 	Edits       []Edit    `json:"-"`
+	Written     []string  `json:"written,omitempty"` // every file written this session, first write first
 }
 
 // Call is a tool_use that has no result yet: what a permission prompt or question is about.
@@ -257,6 +259,9 @@ func (t *transcriptTail) consume(line []byte) {
 				}
 				t.turn[p] = true
 				in.TurnFiles = len(t.turn)
+				if !slices.Contains(in.Written, p) {
+					in.Written = append(in.Written, p)
+				}
 			}
 		}
 	}
