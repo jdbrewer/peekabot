@@ -2,38 +2,41 @@
 class Peekabot < Formula
   desc "Quiet board for all your Claude Code sessions in tmux"
   homepage "https://github.com/jdbrewer/peekabot"
-  version "0.4.0"
+  version "0.5.0"
   license "MIT"
 
   depends_on "tmux"
 
   on_macos do
     on_arm do
-      url "https://github.com/jdbrewer/peekabot/releases/download/v0.4.0/peekabot_0.4.0_darwin_arm64.tar.gz"
-      sha256 "d6511b4b5c8e816b82a6c65069c21ff55d8dd7ae91a2455333956a2c953867e0"
+      url "https://github.com/jdbrewer/peekabot/releases/download/v0.5.0/peekabot_0.5.0_darwin_arm64.tar.gz"
+      sha256 "87026d782ab74e901d27976bca3fdeb089b7f0156b079a8ec5380172269199e8"
     end
     on_intel do
-      url "https://github.com/jdbrewer/peekabot/releases/download/v0.4.0/peekabot_0.4.0_darwin_amd64.tar.gz"
-      sha256 "abb11cba7f48e861e040cb34aa263216e4e73f705ce63dd3a508ba202a8cd336"
+      url "https://github.com/jdbrewer/peekabot/releases/download/v0.5.0/peekabot_0.5.0_darwin_amd64.tar.gz"
+      sha256 "d23d8663e9270c1c110e932361cf24c74c933467838e6ca362f470d5c6afadf5"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/jdbrewer/peekabot/releases/download/v0.4.0/peekabot_0.4.0_linux_arm64.tar.gz"
-      sha256 "1c46bcb969873073f2e10899b9beb537f7aee4882640d29cfb783d3fca4d589d"
+      url "https://github.com/jdbrewer/peekabot/releases/download/v0.5.0/peekabot_0.5.0_linux_arm64.tar.gz"
+      sha256 "565b12c76a3bf7f22dcebfacf0484f1a408426c45aeb9a2b4a354a6c95f8ab8f"
     end
     on_intel do
-      url "https://github.com/jdbrewer/peekabot/releases/download/v0.4.0/peekabot_0.4.0_linux_amd64.tar.gz"
-      sha256 "d351a09e1919d02d8ae2d41be83fef4d79b65270ca7e07f05aa10ab3b7dc0767"
+      url "https://github.com/jdbrewer/peekabot/releases/download/v0.5.0/peekabot_0.5.0_linux_amd64.tar.gz"
+      sha256 "3eecf9c57b9b28d5e56db230b860efe3d818905b18083045c011661da595937e"
     end
   end
 
   def install
     bin.install "peekabot"
+    # peekabot was ccfleet until 0.2.0: keep tmux.conf bindings that run ccfleet working
+    bin.install_symlink bin/"peekabot" => "ccfleet"
   end
 
   test do
     assert_match version.to_s, shell_output("#{bin}/peekabot --version")
+    assert_match version.to_s, shell_output("#{bin}/ccfleet --version")
   end
 end
