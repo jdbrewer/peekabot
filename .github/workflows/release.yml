@@ -21,6 +21,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # People who tapped this repo before jdbrewer/tap existed still upgrade from this copy.
       - name: Update Homebrew formula on main
         run: |
           v="${GITHUB_REF_NAME#v}"
@@ -33,3 +34,29 @@ jobs:
           git add Formula/peekabot.rb
           git diff --cached --quiet || git commit -m "Formula: peekabot ${v}"
           git push origin main
+  homebrew-tap:
+    # A separate job so it can be re-run alone: the release job fails once the release exists.
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: jdbrewer/homebrew-tap
+          # GITHUB_TOKEN can't push to another repo. Fine-grained PAT, contents: write on homebrew-tap only.
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+      - name: Update Homebrew formula in jdbrewer/tap
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          gh release download "$GITHUB_REF_NAME" --pattern checksums.txt --output /tmp/checksums.txt
+          mkdir -p homebrew-tap/Formula
+          scripts/formula.sh "$v" /tmp/checksums.txt > homebrew-tap/Formula/peekabot.rb
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/peekabot.rb
+          git diff --cached --quiet || git commit -m "peekabot ${v}"
+          git push origin HEAD:main

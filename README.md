@@ -43,9 +43,7 @@ With the optional focus hook, focusing the pane anywhere in tmux also counts.
 ## Install
 
 ```sh
-brew tap jdbrewer/peekabot https://github.com/jdbrewer/peekabot
-brew trust --formula jdbrewer/peekabot/peekabot   # Homebrew 7+ asks you to trust third-party formulae
-brew install peekabot
+brew install jdbrewer/tap/peekabot
 ```
 
 Or download a binary for macOS or Linux from [Releases](https://github.com/jdbrewer/peekabot/releases),
@@ -64,6 +62,23 @@ It adds the badge to `status-right` and sets `status-interval 5`. It also adds a
 
 Requires tmux 3.2+ (popups) and Claude Code. It runs on macOS and Linux. CI runs an
 end-to-end check on both against a fake fleet of sessions in real tmux.
+
+### Installed from the old tap
+
+If you installed with `brew tap jdbrewer/peekabot` (or `jdbrewer/ccfleet`), you don't need to do
+anything. That tap still gets every release, and `brew upgrade` keeps working.
+
+To move to `jdbrewer/tap` anyway, tap it, reinstall from it and drop the old tap:
+
+```sh
+brew tap jdbrewer/tap
+brew reinstall jdbrewer/tap/peekabot
+brew untap jdbrewer/peekabot   # or jdbrewer/ccfleet
+```
+
+If you have both taps, `brew upgrade` still works, but commands that use the short name, like
+`brew upgrade peekabot`, stop with "Formulae found in multiple taps". Use the full name, or move
+over as above.
 
 ### Coming from ccfleet
 
